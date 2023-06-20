@@ -1,95 +1,159 @@
-!pip install qiskit
+!pip install Qiskit
+!pip install numpt
+!pip install strawberryfields
 
-!pip install numpy
+import numpy as np
+
+import matplotlib.pyplot as plt
 
 from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, Aer, execute
 
+import strawberryfields as sf
 
-
-# Define the number of qubits and classical bits
-
-n_qubits = 3
-
-n_classical = 2
+from strawberryfields.ops import *
 
 
 
-# Create the quantum and classical registers
+# Number of runs to perform
 
-qreg = QuantumRegister(n_qubits)
-
-creg = ClassicalRegister(n_classical)
+num_runs = 1000
 
 
 
-# Define a new quantum circuit for quantum teleportation
+# Initialize a dictionary to store the measurement results
 
-circ_teleport = QuantumCircuit(qreg, creg)
-
-
-
-# Prepare the initial state (|psi> = |1>) on qubit 0 that we want to teleport
-
-circ_teleport.x(qreg[0])
+measurement_results = {'0': 0, '1': 0}
 
 
 
-# Create a Bell pair between qubits 1 and 2
+for _ in range(num_runs):
 
-circ_teleport.h(qreg[1])
+    # Qiskit part: Prepare the initial state of the qubit to be teleported
 
-circ_teleport.cx(qreg[1], qreg[2])
+    n_qubits = 2
 
+    qreg = QuantumRegister(n_qubits)
 
+    creg = ClassicalRegister(n_qubits)
 
-# Perform the Bell measurement on qubits 0 and 1
-
-circ_teleport.cx(qreg[0], qreg[1])
-
-circ_teleport.h(qreg[0])
-
-circ_teleport.measure(qreg[0], creg[0])
-
-circ_teleport.measure(qreg[1], creg[1])
+    circ = QuantumCircuit(qreg, creg)
 
 
 
-# Apply the appropriate gates on qubit 2 based on the classical bits received
+    # Prepare the initial state (|psi> = |1>) on qubit 0 that we want to teleport
 
-circ_teleport.barrier()
-
-circ_teleport.x(qreg[2]).c_if(creg, 1)
-
-circ_teleport.z(qreg[2]).c_if(creg, 2)
-
-circ_teleport.x(qreg[2]).c_if(creg, 3)
+    circ.x(qreg[0])
 
 
 
-# Measure the final state of qubit 2
+    # Perform the Bell measurement on qubits 0 and 1
 
-circ_teleport.barrier()
+    circ.h(qreg[0])
 
-circ_teleport.measure(qreg[2], creg[0])
+    circ.cx(qreg[0], qreg[1])
 
+    circ.measure(qreg[0], creg[0])
 
-
-# Visualize the circuit
-
-print(circ_teleport)
+    circ.measure(qreg[1], creg[1])
 
 
 
-# Execute the circuit on a simulator
+    # Execute the circuit on a simulator
 
-backend = Aer.get_backend('qasm_simulator')
+    backend = Aer.get_backend('qasm_simulator')
 
-job = execute(circ_teleport, backend=backend, shots=1024)
+    job = execute(circ, backend, shots=1)
 
-counts = job.result().get_counts(circ_teleport)
+    measurement_result = list(job.result().get_counts(circ).keys())[0]
 
 
 
-# Print the results
+    # Strawberry Fields part: Create the entangled resource state and apply the teleportation protocol
 
-print(counts)
+    prog = sf.Program(num_subsystems=2)
+
+    with prog.context as q:
+
+        # Prepare a two-mode squeezed vacuum state (an entangled resource state)
+
+        S2gate(1) | (q[0], q[1])
+
+
+
+        # Apply the displacement operation based on the measurement result of qubit 0
+
+        Dgate(np.sqrt(np.pi) * (-1 if measurement_result[1] == '1' else 1)) | q[0]
+
+
+
+        # Apply the conditional phase operation based on the measurement result of qubit 1
+
+        if measurement_result[0] == '1':
+
+            Zgate(np.pi) | q[1]
+
+
+
+    eng = sf.Engine("fock", backend_options={"cutoff_dim": 10})
+
+    state = eng.run(prog)
+
+
+
+    # Decode the continuous-variable state back into a qubit state
+
+    decoded_statevector = np.array([state.state.wigner(1, np.sqrt(np.pi), 0), -state.state.wigner(1, -np.sqrt(np.pi), 0)])
+
+
+
+    # Qiskit part: Perform any necessary qubit-based operations on the decoded state
+
+    decoded_qreg = QuantumRegister(n_qubits)
+
+    decoded_creg = ClassicalRegister(1)
+
+    decoded_circ = QuantumCircuit(decoded_qreg, decoded_creg)
+
+
+
+    # Apply any necessary qubit-based operations on the decoded state
+
+    # In this example, we will apply a Hadamard gate to the decoded qubit state
+
+    decoded_circ.h(decoded_qreg[0])
+
+
+
+    # Measure the decoded qubit state
+
+    decoded_circ.measure(decoded_qreg[0], decoded_creg[0])
+
+
+
+    # Execute the circuit on a simulator
+
+    decoded_backend = Aer.get_backend('statevector_simulator')
+
+    decoded_job = execute(decoded_circ, decoded_backend, initial_statevector=decoded_statevector)
+
+    decoded_measurement_result = list(decoded_job.result().get_counts(decoded_circ).keys())[0]
+
+
+
+    # Update the measurement results dictionary
+
+    measurement_results[decoded_measurement_result] += 1
+
+
+
+# Plot the histogram of the measurement results
+
+plt.bar(measurement_results.keys(), measurement_results.values())
+
+plt.xlabel('Measurement result')
+
+plt.ylabel('Frequency')
+
+plt.title('Histogram of measurement results over {} runs'.format(num_runs))
+
+plt.show()
