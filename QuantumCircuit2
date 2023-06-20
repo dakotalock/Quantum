@@ -1,0 +1,95 @@
+!pip install qiskit
+
+!pip install numpy
+
+from qiskit import QuantumCircuit, QuantumRegister, ClassicalRegister, Aer, execute
+
+
+
+# Define the number of qubits and classical bits
+
+n_qubits = 3
+
+n_classical = 2
+
+
+
+# Create the quantum and classical registers
+
+qreg = QuantumRegister(n_qubits)
+
+creg = ClassicalRegister(n_classical)
+
+
+
+# Define a new quantum circuit for quantum teleportation
+
+circ_teleport = QuantumCircuit(qreg, creg)
+
+
+
+# Prepare the initial state (|psi> = |1>) on qubit 0 that we want to teleport
+
+circ_teleport.x(qreg[0])
+
+
+
+# Create a Bell pair between qubits 1 and 2
+
+circ_teleport.h(qreg[1])
+
+circ_teleport.cx(qreg[1], qreg[2])
+
+
+
+# Perform the Bell measurement on qubits 0 and 1
+
+circ_teleport.cx(qreg[0], qreg[1])
+
+circ_teleport.h(qreg[0])
+
+circ_teleport.measure(qreg[0], creg[0])
+
+circ_teleport.measure(qreg[1], creg[1])
+
+
+
+# Apply the appropriate gates on qubit 2 based on the classical bits received
+
+circ_teleport.barrier()
+
+circ_teleport.x(qreg[2]).c_if(creg, 1)
+
+circ_teleport.z(qreg[2]).c_if(creg, 2)
+
+circ_teleport.x(qreg[2]).c_if(creg, 3)
+
+
+
+# Measure the final state of qubit 2
+
+circ_teleport.barrier()
+
+circ_teleport.measure(qreg[2], creg[0])
+
+
+
+# Visualize the circuit
+
+print(circ_teleport)
+
+
+
+# Execute the circuit on a simulator
+
+backend = Aer.get_backend('qasm_simulator')
+
+job = execute(circ_teleport, backend=backend, shots=1024)
+
+counts = job.result().get_counts(circ_teleport)
+
+
+
+# Print the results
+
+print(counts)
